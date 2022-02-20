@@ -18,8 +18,8 @@ def main():
     x = film_data.drop(columns=['Lead'])
     y = film_data['Lead']
     
-    k_max = 60
-    n_folds = 200
+    k_max = 50
+    n_folds = 80
  
     missclassification_k_error, evaluation_terms, plotting_terms = evaluate_with_kfold(x, y, n_folds, k_max)
     
@@ -101,12 +101,21 @@ def evaluate_with_kfold(x, y, n_folds=None, k_max=None):
         for key in temp_plotting_terms.keys():
             if key in plotting_terms:
                 #plotting_terms[key] = np.add(plotting_terms[key],temp_plotting_terms[key])
-                plotting_terms[key] = [sum(x) for x in zip(plotting_terms[key], temp_plotting_terms[key])]
+                for i, k in enumerate(temp_plotting_terms[key]):
+                    val = plotting_terms[key][i] + temp_plotting_terms[key][i]
+                    plotting_terms[key][i]= val
+                   
+
+                #plotting_terms[key] = [sum(x) for x in zip(plotting_terms[key], temp_plotting_terms[key])]
             else:
                 plotting_terms[key] = temp_plotting_terms[key]
+        
+
 
     for key in plotting_terms.keys():
+        
         plotting_terms[key]=np.array(plotting_terms[key])/n_folds
+       # print(f"this is list {key} with:  {plotting_terms[key]}")
 
     evaluation_terms["TPR"] = evaluation_terms["TP"]/evaluation_terms["P"]
     evaluation_terms["FPR"] = evaluation_terms["FP"]/evaluation_terms["N"]
@@ -142,31 +151,38 @@ def get_evaluation_terms(model, x_test, y_test):
     P = np.sum(y_test == positive_class) #the same as TP+FN
     N = np.sum(y_test == negative_class) #the same as TN+FP 
     
-    FPR_curve =[]
-    TPR_curve = []
-    precision_curve = [] 
-    recall_curve = []
+    FPR_curve = [0]*100
+    TPR_curve = [0]*100
+    precision_curve = [0]*100 
+    recall_curve = [0]*100
 
 
 
     #FPR_curve, TPR_curve, threshold = met.roc_curve(y_test,  predict_prob, pos_label=positive_class )
     #precision_curve, recall_curve, threshold = met.precision_recall_curve(y_test,  predict_prob, pos_label=positive_class )
-    
+    i=0
     threshold = np.linspace(0,1,101)
     positive_class_index = np.argwhere(model.classes_== positive_class).squeeze()
     for r in threshold:
+        
         prediction_curve = np.where(predict_prob[:, positive_class_index]> r, positive_class, negative_class)
         FP_temp = np.sum((prediction_curve == positive_class) & (y_test == negative_class))
         TP_temp = np.sum((prediction_curve == positive_class) & (y_test == positive_class))
         P_star_temp = FP_temp+TP_temp
-        FPR_curve.append(FP_temp/N)
-        TPR_curve.append(TP_temp/P)
         
-        if P_star_temp == 0:
-            continue
-        else:
-            precision_curve.append(TP_temp/P_star_temp)
-            recall_curve.append(TP_temp/P)     
+        if ((TP_temp!=0) and (P_star_temp!=0)):
+            val = TP_temp/P_star_temp + precision_curve[i]
+            precision_curve[i] = val
+        if ((TP_temp!=0) and (P!=0)):
+            val = TP_temp/P + recall_curve[i]
+            recall_curve[i] = val        
+        if ((FP_temp!=0) and (N!=0)):
+            val = FP_temp/N + FPR_curve[i]
+            FPR_curve[i] = val        
+        if ((TP_temp!=0) and (P!=0)):
+            val = TP_temp/P + TPR_curve[i]
+            TPR_curve[i] = val        
+        i +=1
         
     FP = np.sum((prediction == positive_class) & (y_test == negative_class))
     TP = np.sum((prediction == positive_class) & (y_test == positive_class))
