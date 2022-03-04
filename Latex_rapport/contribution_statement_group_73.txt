@@ -1,0 +1,19 @@
+Contribution Statement - Group 73
+
+Participants: Dap De Bruijckere - Engineering Physics, Felix Dryselius - Social Techincal Systems Engineering, Vidar Lundgren - Engineering physics, Irina Zarankina - Financial mathematics 
+
+The logistic regression model was performed by Irina Zarankina.
+
+Discriminant Analysis was performed by Vidar Lundgren.
+
+K-nearest neighbour model was performed by Felix Dryselius.
+
+Tree-based methods was performed by Dap De Bruijckere.
+
+Vidar worked on the Choice of method section and conclusion.
+
+Irina worked on the Feature importance and selection, Discussion, Abstract. 
+
+Felix wrote the Data analysis task and also worked with Irina on the Abstract, Feature importance and selection parts
+
+There has been continuous discussion and co-operation between all the group members, with scheduled meetings. Most sections in the report were a result of more than one person's work effort. For the final submission team members also read each others' parts and came with suggestions as well as implemented changes if needed,

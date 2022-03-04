@@ -1,6 +1,3 @@
-# ------------------ kNN evaluation ------------------
-# The structure of this program is 
-
 # Imports
 import pandas as pd
 import numpy as np
@@ -21,20 +18,21 @@ def main():
     #URI = (cwd+"\\train_minmaxscaler.csv")
     film_data = pd.read_csv(URI, dtype={"Lead":str}).dropna().reset_index(drop=True)
 
-    x = film_data.drop(columns=['Lead'] #, 'Year', 'Mean Age Male', 'Mean Age Female', 'Number of male actors', 'Number of female actors', 'Age Co-Lead'])
+    x = film_data.drop(columns=['Lead']) #, 'Year', 'Mean Age Male', 'Mean Age Female', 'Number of male actors', 'Number of female actors', 'Age Co-Lead'])
     y = film_data['Lead']
     positive_class = "Male"
     negative_class = "Female"
     
     
 
-    # Setting values to k-range and number of folds
+    # Setting values to k-range, number of folds, and threshold
     k_max = 80
     n_folds = 200
+    threshold = 0.24
  
     # Call of function "evaluate_with_kfold",
     # please see function def for more info
-    missclassification_k_error, evaluation_terms, plotting_terms = evaluate_with_kfold(x, y,positive_class, negative_class, n_folds, k_max)
+    missclassification_k_error,  evaluation_terms, plotting_terms = evaluate_with_kfold(x, y,positive_class, negative_class, threshold, n_folds, k_max)
     
     # Finds what k-value minimizes missclassification
     # and find missclassification at that point
@@ -42,7 +40,7 @@ def main():
     new_error_estimate = np.min(missclassification_k_error)
     evaluation_terms["Optimal_k"] = min_error_k
     evaluation_terms["E[Error_new]"] = new_error_estimate
-    
+
     # Creates list for latex
     data = list(evaluation_terms.items())
     data.insert(0, ["Term","Value"]) 
@@ -81,7 +79,7 @@ def main():
     axis[1].set_ylabel("precision rate")
     plt.show()
 
-def evaluate_with_kfold(x, y, positive_class, negative_class, n_folds=None, k_max=None):
+def evaluate_with_kfold(x, y, positive_class, negative_class, threshold=0.5, n_folds=None, k_max=None):
     # ----------------- function description -----------------
     # This function has three returns:
     # 'missclassification_k_error', 'evaluation_terms', and
@@ -110,18 +108,19 @@ def evaluate_with_kfold(x, y, positive_class, negative_class, n_folds=None, k_ma
     if k_max == None:
         k_max= x.shape[1]*4
 
-
-    Kfold_cv = skl_ms.KFold(shuffle=True,n_splits=n_folds)
+    # Defining the splits and setting random_state to have reproductable results
+    Kfold_cv = skl_ms.KFold(shuffle=True,n_splits=n_folds, random_state=1)
     k_range = np.arange(1,k_max)
     
     # Initializing variables for later usage
     missclassification_k_error = np.zeros(len(k_range))
     evaluation_terms = {}
+    threshold_terms = {}
     plotting_terms = {}
     
     # ----------------- 1st cross validation -----------------
     # Finds the optimal value for 'k' and an estimation of
-    # E[Error_new] using cross validation.
+    # E[Error_new] using cross validation with uniform weights.
     # Number of folds and range of k-values tested are
     # given by n_folds and k_max
 
@@ -129,7 +128,7 @@ def evaluate_with_kfold(x, y, positive_class, negative_class, n_folds=None, k_ma
         x_train, x_test = x.iloc[train_index], x.iloc[val_index]
         y_train, y_test = y.iloc[train_index], y.iloc[val_index]
         
-        temp_missclassification_k_error = evaluate_k_kNN(k_range,x_train, y_train, x_test, y_test)
+        temp_missclassification_k_error = evaluate_k_kNN(k_range,x_train, y_train, x_test, y_test,positive_class, negative_class,"uniform", "auto",threshold)
         missclassification_k_error = np.add(missclassification_k_error,temp_missclassification_k_error)
     
     missclassification_k_error /= n_folds
@@ -137,16 +136,15 @@ def evaluate_with_kfold(x, y, positive_class, negative_class, n_folds=None, k_ma
     
     # ----------------- 2nd cross validation -----------------
     # Finds values of 'evaluation terms' and 'plotting
-    # ranges(terms)' for ROC and precision-recall curve
-    # by taking the average of cross validation with n_folds
+    # ranges(terms)' 
 
     for train_index, val_index in Kfold_cv.split(x):
         x_train, x_test = x.iloc[train_index], x.iloc[val_index]
         y_train, y_test = y.iloc[train_index], y.iloc[val_index]
-        model = skl_nb.KNeighborsClassifier(n_neighbors=min_error_k)
+        model = skl_nb.KNeighborsClassifier(n_neighbors=min_error_k,weights="uniform",algorithm="auto")
         model.fit(x_train, y_train)
         
-        temp_evaluation_terms, temp_plotting_terms = get_evaluation_terms(model, x_test, y_test, positive_class, negative_class)
+        temp_evaluation_terms, temp_threshold_terms = get_evaluation_terms(model, x_test, y_test, positive_class, negative_class, threshold)
         
         # The sum of each 'evaluation terms' generated
         # per fold
@@ -160,102 +158,107 @@ def evaluate_with_kfold(x, y, positive_class, negative_class, n_folds=None, k_ma
         # The sum of each 'plotting term' per index, per fold
         # This works because all plotting_terms have the same 
         # size 
-        for key in temp_plotting_terms.keys():
-            if key in plotting_terms:
-                for i, k in enumerate(temp_plotting_terms[key]):
-                    val = plotting_terms[key][i] + temp_plotting_terms[key][i]
-                    plotting_terms[key][i]= val
+        for key in temp_threshold_terms.keys():
+            if key in threshold_terms:
+                for i, k in enumerate(temp_threshold_terms[key]):
+                    val = threshold_terms[key][i] + temp_threshold_terms[key][i]
+                    threshold_terms[key][i]= val
             else:
                 # If plotting_terms is empty
-                plotting_terms[key] = temp_plotting_terms[key]
+                threshold_terms[key] = temp_threshold_terms[key]
         
-    for key in plotting_terms.keys():
-        # Average of plotting terms over 'n_fold'
-        plotting_terms[key]=np.array(plotting_terms[key])/n_folds
+  
     
     # Creation of additional evaluation terms and addition to 
     # dictionary "evaluation_terms"
     evaluation_terms["TPR"] = evaluation_terms["TP"]/evaluation_terms["P"]
     evaluation_terms["FPR"] = evaluation_terms["FP"]/evaluation_terms["N"]
+    evaluation_terms["accuracy"] = (evaluation_terms["TP"]+evaluation_terms["TN"])/(evaluation_terms["N"]+evaluation_terms["P"])
     evaluation_terms["precision"] = evaluation_terms["TP"]/evaluation_terms["P_star"]
+    evaluation_terms["recall"] = evaluation_terms["TP"]/(evaluation_terms["TP"]+evaluation_terms["FN"])
     evaluation_terms["F1"] = 2*(evaluation_terms["precision"]*evaluation_terms["TPR"])/(evaluation_terms["precision"]+evaluation_terms["TPR"])  
+
+
+    # Creation of specific plotting curves
+    plotting_terms["FPR_curve"] = threshold_terms["FP_threshold"]/evaluation_terms["N"]
+    plotting_terms["TPR_curve"] = threshold_terms["TP_threshold"]/evaluation_terms["P"]
+    plotting_terms["recall_curve"] = threshold_terms["TP_threshold"]/(threshold_terms["FN_threshold"]+threshold_terms["TP_threshold"])
+    plotting_terms["precision_curve"] = threshold_terms["TP_threshold"]/(threshold_terms["FP_threshold"]+threshold_terms["TP_threshold"])
+
 
     return missclassification_k_error, evaluation_terms, plotting_terms
         
         
 
-def evaluate_k_kNN(k_range,x_train, y_train, x_test, y_test):
+def evaluate_k_kNN(k_range,x_train, y_train, x_test, y_test, positive_class, negative_class, weight_type=None, algorithm_type=None, threshold=0.5):
     # ----------------- function description -----------------
     # This function returns the missclassification error 
     # of 'k' in range (1-'k_range').
     # It returns an np.array where index is the value 
     # of ('k'-1) and the value the missclassification error.
 
+    if weight_type == None:
+        weight_type = "uniform"
+    
+    if algorithm_type==None:
+        algorithm_type = "auto"    
+
+
     missclassification_k_error = np.zeros(len(k_range))
     for index, k in enumerate(k_range):
-        model = skl_nb.KNeighborsClassifier(n_neighbors=k)
+        model = skl_nb.KNeighborsClassifier(n_neighbors=k,weights=weight_type,algorithm=algorithm_type)
         model.fit(x_train, y_train)
-        missclassification_k_error[index] += get_mean_missclassification(model,x_test,y_test)
+        missclassification_k_error[index] += get_mean_missclassification(model,x_test,y_test, threshold, positive_class, negative_class)
     
     return missclassification_k_error
 
 
-def get_mean_missclassification(model,x_test,y_test):
+def get_mean_missclassification(model,x_test,y_test, threshold, positive_class, negative_class):
     # ----------------- function description -----------------
     # This function returns the mean missclassification error 
-    # from a 'model' evaluated on 'y_test'
-
-    prediction = model.predict(x_test)
+    # from a 'model' evaluated on 'y_test' and with
+    # 'threshold'
+    
+    # set threshold
+    positive_class_index = np.argwhere(model.classes_== positive_class).squeeze()
+    prediction = np.where(model.predict_proba(x_test)[:,positive_class_index] > threshold, positive_class, negative_class)
+    
+    # calc missclasification error
     mean_missclassification =  np.mean(prediction != y_test)
     return mean_missclassification
 
 
-def get_evaluation_terms(model, x_test, y_test, positive_class, negative_class):
+def get_evaluation_terms(model, x_test, y_test, positive_class, negative_class,threshold):
     # ----------------- function description -----------------
     # This function returns the evaluation and plotting terms
     # given a model, test set and class labels.
 
+    positive_class_index = np.argwhere(model.classes_== positive_class).squeeze()
+    
+    # Setting based on 'threshold'
+    prediction = np.where(model.predict_proba(x_test)[:,positive_class_index] > threshold, positive_class, negative_class)
     prediction = model.predict(x_test)
     predict_prob = model.predict_proba(x_test)
     P = np.sum(y_test == positive_class) #the same as TP+FN
     N = np.sum(y_test == negative_class) #the same as TN+FP 
     
-    # All variables with *_curve are lists that contain 
-    # plotting values for FPR, TPR, precision and recall.
+    # All variables with *_threshold are lists that contain 
+    # plotting values.
     # Index represents the value of the threshold 'r' in
     # range 0-1 with 0.01 as increments. 
-    FPR_curve = [0]*100
-    TPR_curve = [0]*100
-    precision_curve = [0]*100 
-    recall_curve = [0]*100
-    threshold = np.linspace(0,1,101)
+    FP_threshold = np.zeros(101)
+    TP_threshold = np.zeros(101)
+    FN_threshold = np.zeros(101)
+    TN_threshold = np.zeros(101)
+    threshold_range = np.linspace(0,1,101)
 
-    i=0
-    positive_class_index = np.argwhere(model.classes_== positive_class).squeeze()
-    
-    for r in threshold:       
+    i=0    
+    for r in threshold_range:       
         prediction_curve = np.where(predict_prob[:, positive_class_index]> r, positive_class, negative_class)
-        FP_temp = np.sum((prediction_curve == positive_class) & (y_test == negative_class))
-        TP_temp = np.sum((prediction_curve == positive_class) & (y_test == positive_class))
-        P_star_temp = FP_temp+TP_temp
-        
-        # Because the value of FP_temp, TP_temp, etc.
-        # can be zero, if-statements must be inplace
-        # to ensure non-zero division. Because the
-        # values of all folds will be combined,
-        # zero-valued arrays are acceptable
-        if ((TP_temp!=0) and (P_star_temp!=0)):
-            val = TP_temp/P_star_temp + precision_curve[i]
-            precision_curve[i] = val
-        if ((TP_temp!=0) and (P!=0)):
-            val = TP_temp/P + recall_curve[i]
-            recall_curve[i] = val        
-        if ((FP_temp!=0) and (N!=0)):
-            val = FP_temp/N + FPR_curve[i]
-            FPR_curve[i] = val        
-        if ((TP_temp!=0) and (P!=0)):
-            val = TP_temp/P + TPR_curve[i]
-            TPR_curve[i] = val        
+        FP_threshold[i] = np.sum((prediction_curve == positive_class) & (y_test == negative_class))
+        TP_threshold[i] = np.sum((prediction_curve == positive_class) & (y_test == positive_class))
+        FN_threshold[i] = np.sum((prediction_curve == negative_class) & (y_test == positive_class))
+        TN_threshold[i] = np.sum((prediction_curve == negative_class) & (y_test == negative_class))
         i +=1
         
     FP = np.sum((prediction == positive_class) & (y_test == negative_class))
@@ -268,7 +271,7 @@ def get_evaluation_terms(model, x_test, y_test, positive_class, negative_class):
     N_star = np.sum(prediction == negative_class) #the same as TN+F
 
     evaluation_terms = {"P":P, "N":N,"P_star":P_star, "N_star":N_star, "TN":TN, "FP":FP, "FN":FN, "TP":TP}
-    plotting_terms = {"FPR_curve":FPR_curve,"TPR_curve":TPR_curve,"precision_curve":precision_curve,"recall_curve":recall_curve}
+    plotting_terms = {"FP_threshold":FP_threshold,"TP_threshold":TP_threshold,"FN_threshold":FN_threshold,"TN_threshold":TN_threshold}
     
     return evaluation_terms, plotting_terms
 
@@ -283,6 +286,48 @@ def find_best_k( missclassification_k_error):
     min_error_k = [i for i, x in enumerate(missclassification_k_error) if x == min_error] [0]+1
 
     return min_error_k
+
+
+
+# Functions for creating scaled data sets
+
+def generate_standard_scaled_datafile(film_data):
+    import sklearn.preprocessing as skl_pre
+    #CREATE NEW DATA WITH STANDARDSCALING
+    x = film_data.drop(columns=['Lead'])
+    y = film_data['Lead']
+
+    standard_scaler = skl_pre.StandardScaler(with_mean=True,with_std=True)
+
+    # StandardScaler: mean=0, variance=1
+    scaled_film_data_array = standard_scaler.fit_transform(x)
+
+    x_scaled = pd.DataFrame(scaled_film_data_array, columns = list(x.columns))
+
+    film_data_scaled = x_scaled.join(y)
+
+    film_data_scaled.to_csv('train_standardscaler.csv',index=False)
+    
+    print("New standardScaled data saved to file: 'train_standardscaler.csv'")
+
+def generate_MinMax_scaled_datafile(film_data):
+    import sklearn.preprocessing as skl_pre
+    #CREATE NEW DATA WITH MINMAXSCALER
+    x = film_data.drop(columns=['Lead'])
+    y = film_data['Lead']
+
+    minmax_scaler = skl_pre.MinMaxScaler(feature_range=(0,1))
+
+    # MinMax scaler: min=0, max=1
+    scaled_film_data_array = minmax_scaler.fit_transform(x)
+
+    x_scaled = pd.DataFrame(scaled_film_data_array, columns = list(x.columns))
+
+    film_data_scaled = x_scaled.join(y)
+
+    film_data_scaled.to_csv('train_minmaxscaler.csv', index=False)
+    
+    print("New MinMax data saved to file: 'train_minmaxscaler.csv'")
 
 
 
